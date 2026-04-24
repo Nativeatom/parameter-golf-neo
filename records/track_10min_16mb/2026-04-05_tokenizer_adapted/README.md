@@ -83,6 +83,15 @@ python normalize_dataset.py \
     --num-workers 4
 ```
 
+## Tokenizer Merging
+
+| Description | Vocab Size | Type |                                                                                          
+|------|-----------|------|    
+| Original | 8,192 | Origin |                                                                                         
+| Level 1 | 8,152 | Level 1 (punctuation split) |                                                     
+| Token length 5-10 | 7,865 | Level 2, uniform mode |                                    
+|  Token length 5-10 | 8,036 | Level 2, inverse_freq mode |  
+
 ## Quantization–Compression Tradeoffs
 
 Quantization and compression interact in interesting ways. The compressed size depends not just on bitwidth, but also on the clip range (also called the scale) used during quantization. An int5 quantized network can actually compress smaller than an int4 one if the int5 quantization uses a much wider clip range. The reason is that the effectiveness of compression algorithms like `brotli` depends on the entropy of the data they are compressing, and increasing the clip range can lower that entropy.
@@ -154,3 +163,20 @@ In practice, I used $b = 6, k = 12.85$ for matrix parameters (tuned so the artif
 -  **More principled:** It directly accounts for compressed size, not just reconstruction error. In the old approach, changes to the script could unexpectedly change the final compressed size because they changed the best clip threshold.
 -  **Faster:** We only need to run GPTQ once per matrix, rather than once for every candidate clip threshold.
 -  **Easier to tune:** Increasing $k$ monotonically reduces the compressed size, making it easier to control how close the model is to the 16MB cap.
+
+## Tokenizer Merging
+
+### Result
+
+| File | Vocab Size | Type |
+|------|-----------|------|
+| `fineweb_8152_l1.model` | 8,152 | Level 1 (punctuation split) |
+| `fineweb_7865_l2_min5_max10_p10_uniform.model` | 7,865 | Level 2, uniform mode |
+| `fineweb_8036_l2_min5_max10_p050_inverse_freq.model` | 8,036 | Level 2, inverse_freq mode |
+
+**Features Verified:**
+1. **JSON conversion**: `../vocab_frequency/vocab8192_freq_train.json` created with `{"token": "word", "frequency": 123}` format
+2. **Level 1**: Removes 40 multi-punctuation tokens (keeps `--` and `...`)
+3. **Level 2**: Decomposes tokens with overlap, respects `min_token_len`, `max_token_len`, `p`, and `mode`
+4. **Functional model files**: All output tokenizers can be loaded with `spm.SentencePieceProcessor()` and encode/decode correctly
+5. **Preserves required tokens**: Byte pieces (`<0x00>` to `<0xFF>`) and special tokens are preserved for byte fallback
